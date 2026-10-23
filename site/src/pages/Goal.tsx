@@ -68,6 +68,25 @@ function Actions({ id, view, refresh }: { id: string; view: NonNullable<ReturnTy
         </div>
       </div>
 
+      {p === "confirm" && (
+        <div className="mt-5">
+          <p className="text-[14px] text-body">
+            Before anyone can pledge, the network has to confirm this version is not out yet. That stops a finished release
+            from being funded and paid out at once.
+          </p>
+          <button type="button" className="btn btn-primary mt-4 w-full" disabled={busy} onClick={() => go("check the registry", () => check(id))}>
+            Check the registry
+          </button>
+        </div>
+      )}
+
+      {p === "existed" && (
+        <p className="mt-5 text-[14px] text-body">
+          The network found this version already published before anyone confirmed it was missing. A goal only pays for a release
+          made after it was posted, so this one cannot take pledges.
+        </p>
+      )}
+
       {p === "open" && (
         <>
           <label className="mt-5 block text-[13px] font-bold text-ink">Pledge, in GEN</label>
@@ -118,10 +137,12 @@ function Actions({ id, view, refresh }: { id: string; view: NonNullable<ReturnTy
         </div>
       )}
 
-      {p === "missed" && (
+      {(p === "missed" || p === "unclaimed") && (
         <div className="mt-5">
           <p className="text-[14px] text-body">
-            The deadline passed without the release being seen. Each backer takes back exactly what they put in.
+            {p === "missed"
+              ? "The deadline passed without the release being seen. Each backer takes back exactly what they put in."
+              : "This version came out without naming the payee. Published versions cannot change, so it can never pay: each backer takes back exactly what they put in, now."}
           </p>
           <div className="mt-3 text-[14px]">
             Your pledge: <span className="font-extrabold">{gen(mine.data ?? 0n, 4)} GEN</span>

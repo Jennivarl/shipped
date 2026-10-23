@@ -10,6 +10,8 @@ UNCLAIMED = 'unclaimed'
 NOT_YET = 'not_yet'
 UNKNOWN = 'unknown'
 VERDICTS = (SHIPPED, UNCLAIMED, NOT_YET, UNKNOWN)
+CLOSED_EXISTED = 'existed'
+CLOSED_UNCLAIMED = 'unclaimed'
 MIN_LEAD = 3600
 MAX_LEAD = 366 * 24 * 3600
 _MAX_NAME = 100
@@ -188,6 +190,13 @@ class Pot(gl.contract.Contract):
         status = self._status(key)
         if bool(status['shipped']):
             raise gl.vm.UserError('that release has already shipped; the pot is decided')
+        closed = str(status.get('closed', ''))
+        if closed == CLOSED_EXISTED:
+            raise gl.vm.UserError('that version was already out before the network confirmed it absent, so it cannot be funded')
+        if closed:
+            raise gl.vm.UserError('that version came out without naming the payee, so it takes no new pledges')
+        if not str(status.get('absent_at', '')):
+            raise gl.vm.UserError('the network has not confirmed this version is unpublished yet; check the registry first')
         if key not in self.funds:
             self.funds[key] = Fund(goal_id=key, payee=_address(target['payee']), total=0, backers=0, state=STATE_OPEN, claimed_at='')
             self.fund_ids.append(key)
@@ -225,11 +234,11 @@ class Pot(gl.contract.Contract):
         now = epoch_seconds(_stamp())
         if now is None:
             raise gl.vm.UserError('the clock could not be read')
-        if now <= int(str(target['deadline'])):
-            raise gl.vm.UserError('the deadline has not passed yet')
         status = self._status(key)
         if bool(status['in_time']):
             raise gl.vm.UserError('the release was seen in time, so the pot belongs to the payee')
+        if now <= int(str(target['deadline'])) and (not str(status.get('closed', ''))):
+            raise gl.vm.UserError('the deadline has not passed yet')
         backer = gl.message.sender_address
         slot = key + '|' + backer.as_hex.lower()
         owed = int(self.pledges[slot]) if slot in self.pledges else 0

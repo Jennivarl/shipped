@@ -103,6 +103,35 @@ def test_terms_about_another_goal_are_refused(direct_vm, pot, stubs):
         pledge(direct_vm, pot)
 
 
+def test_no_pledge_before_the_network_confirms_the_version_is_not_out(direct_vm, pot, stubs):
+    stubs.unconfirmed()
+    with direct_vm.expect_revert("check the registry first"):
+        pledge(direct_vm, pot)
+    assert pot.reserves()["committed"] == "0"
+
+
+def test_a_release_that_already_existed_cannot_be_funded(direct_vm, pot, stubs):
+    """Otherwise anyone could fund a finished release and claim it at once."""
+    stubs.already_existed()
+    with direct_vm.expect_revert("already out before"):
+        pledge(direct_vm, pot)
+
+
+def test_a_release_that_already_existed_cannot_be_claimed(direct_vm, pot, stubs):
+    stubs.already_existed()
+    with direct_vm.expect_revert("nobody has pledged"):
+        pot.claim(GOAL_ID)
+    assert stubs.transfers == []
+
+
+def test_a_version_out_without_the_payee_takes_no_new_pledges(direct_vm, pot, stubs):
+    pledge(direct_vm, pot)
+    stubs.came_out_unclaimed()
+    with direct_vm.expect_revert("takes no new pledges"):
+        pledge(direct_vm, pot, who=OTHER)
+    assert pot.get_fund(GOAL_ID)["total"] == str(PLEDGE)
+
+
 # --------------------------------------------------------------------
 # claiming
 # --------------------------------------------------------------------
@@ -194,6 +223,18 @@ def test_no_refund_when_the_release_was_seen_in_time(direct_vm, pot, stubs):
     with direct_vm.prank(BACKER):
         with direct_vm.expect_revert("belongs to the payee"):
             pot.refund(GOAL_ID)
+
+
+def test_a_version_out_without_the_payee_opens_refunds_at_once(direct_vm, pot, stubs):
+    """It can never pay, so there is nothing to wait for."""
+    pledge(direct_vm, pot)
+    stubs.came_out_unclaimed()
+    set_date(direct_vm, BEFORE)
+    with direct_vm.prank(BACKER):
+        pot.refund(GOAL_ID)
+    assert stubs.transfers == [{"to": BACKER, "value": PLEDGE, "kind": EVM_PAY}]
+    with direct_vm.expect_revert("not been seen in time"):
+        pot.claim(GOAL_ID)
 
 
 def test_a_backer_refunds_once(direct_vm, pot, stubs):

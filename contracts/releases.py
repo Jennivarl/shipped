@@ -44,6 +44,14 @@ UNKNOWN = "unknown"
 
 VERDICTS = (SHIPPED, UNCLAIMED, NOT_YET, UNKNOWN)
 
+# Why a goal can never pay, once the network has seen it. A published
+# version is immutable, so neither can be undone by a later reading.
+#   existed     the version was already out before the network had ever
+#               confirmed it absent, so nobody could have funded its making
+#   unclaimed   it came out after that, but without naming the payee
+CLOSED_EXISTED = "existed"
+CLOSED_UNCLAIMED = "unclaimed"
+
 # How far ahead a goal's deadline may be set. Long enough for a real
 # release cycle, short enough that pledges are not locked up for years.
 MIN_LEAD = 3600

@@ -108,9 +108,14 @@ export default function Start() {
               {error && <p className="text-[13.5px] text-warn">{error}</p>}
               <TxBanner tx={tx} onClose={clear} />
               {tx?.state === "done" && (
-                <a href={`#/goal?id=${encodeURIComponent(goalId)}`} className="btn btn-secondary no-underline">
-                  Open the goal →
-                </a>
+                <>
+                  <p className="text-[13.5px] text-body">
+                    Next, open the goal and press Check the registry. Pledges open once the network confirms this version is not out yet.
+                  </p>
+                  <a href={`#/goal?id=${encodeURIComponent(goalId)}`} className="btn btn-secondary no-underline">
+                    Open the goal →
+                  </a>
+                </>
               )}
             </form>
           )}

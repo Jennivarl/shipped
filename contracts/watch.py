@@ -18,6 +18,12 @@ it is out. Only an observation before the deadline counts.
 Once shipped is seen, it is final. Further checks are refused, so nothing
 that happens to the registry later, a yanked file, an outage, a mirror
 serving stale data, can take back a payout that was already earned.
+
+A goal pays only for a release made after the network confirmed it was not
+out yet. So the first `not_yet` reading is recorded, and POT accepts no
+pledge before it. A version the network finds already published before
+that, or published later without naming the payee, closes the goal for
+good: published versions are immutable, so it can never become payable.
 """
 
 from dataclasses import dataclass
@@ -26,7 +32,11 @@ import genlayer as gl
 from genlayer.types import *
 
 from contracts.releases import (
+    CLOSED_EXISTED,
+    CLOSED_UNCLAIMED,
+    NOT_YET,
     SHIPPED,
+    UNCLAIMED,
     VERDICTS,
     classify,
     epoch_seconds,
@@ -39,6 +49,8 @@ _MAX_NOTE = 60
 @gl.storage.allow
 @dataclass
 class Record:
+    absent_at: str
+    closed: str
     shipped_at: str
     checks: u256
     last_at: str
@@ -65,11 +77,11 @@ class Watch(gl.contract.Contract):
         if str(target["goal_id"]).lower() != key:
             raise gl.vm.UserError("those terms are about a different goal")
 
-        record = self.records[key] if key in self.records else Record(
-            shipped_at="", checks=0, last_at="", last_verdict="", last_note=""
-        )
+        record = self.records[key] if key in self.records else _blank()
         if record.shipped_at:
             raise gl.vm.UserError("that release has already been seen, and that is final")
+        if record.closed:
+            raise gl.vm.UserError("that version is already out and can never pay this goal, and that is final")
 
         now_stamp = _stamp()
         now = epoch_seconds(now_stamp)
@@ -104,8 +116,17 @@ class Watch(gl.contract.Contract):
         record.last_at = now_stamp
         record.last_verdict = verdict
         record.last_note = note
-        if verdict == SHIPPED:
-            record.shipped_at = now_stamp
+        if verdict == NOT_YET and not record.absent_at:
+            record.absent_at = now_stamp
+        elif verdict in (SHIPPED, UNCLAIMED):
+            if not record.absent_at:
+                # Out before anyone confirmed it absent: not a release this
+                # goal could have paid for, whoever it names.
+                record.closed = CLOSED_EXISTED
+            elif verdict == SHIPPED:
+                record.shipped_at = now_stamp
+            else:
+                record.closed = CLOSED_UNCLAIMED
         self.records[key] = record
         return _as_dict(key, record, int(str(target["deadline"])))
 
@@ -117,9 +138,7 @@ class Watch(gl.contract.Contract):
         """
         key = goal_id.strip().lower()
         target = gl.contract.get_at(self.goal).view().get(key)
-        record = self.records[key] if key in self.records else Record(
-            shipped_at="", checks=0, last_at="", last_verdict="", last_note=""
-        )
+        record = self.records[key] if key in self.records else _blank()
         return _as_dict(key, record, int(str(target["deadline"])))
 
     @gl.public.view
@@ -138,6 +157,10 @@ def _read(url: str, version: str, payee: str) -> dict:
     return classify(status, body, version, payee)
 
 
+def _blank() -> Record:
+    return Record(absent_at="", closed="", shipped_at="", checks=0, last_at="", last_verdict="", last_note="")
+
+
 def _stamp() -> str:
     return str(gl.message.raw["datetime"])
 
@@ -150,9 +173,11 @@ def _address(value) -> Address:
 
 def _as_dict(key: str, record: Record, deadline: int) -> dict:
     seen = epoch_seconds(record.shipped_at) if record.shipped_at else None
-    in_time = seen is not None and seen <= deadline
+    in_time = bool(record.absent_at) and seen is not None and seen <= deadline
     return {
         "goal_id": key,
+        "absent_at": record.absent_at,
+        "closed": record.closed,
         "shipped": bool(record.shipped_at),
         "in_time": in_time,
         "shipped_at": record.shipped_at,

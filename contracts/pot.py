@@ -6,8 +6,9 @@ POT. The money many backers put toward one release.
     pledge(goal_id)   payable, any number of backers, any number of times
     claim(goal_id)    the payee takes the whole pot, once, if the release
                       was seen in time
-    refund(goal_id)   after the deadline, each backer takes back exactly
-                      what they put in, if it was not
+    refund(goal_id)   each backer takes back exactly what they put in, if
+                      it was not: after the deadline, or at once if the
+                      version came out without the payee
 
 This contract judges nothing. It holds pledges and reads WATCH, which only
 says a release was seen in time if every validator read the registry and
@@ -18,10 +19,17 @@ deciding whether to cut a release should be able to count the pot, and a
 pledge that can vanish the night before the deadline is not something
 anybody can count.
 
+A pledge is only taken for a release that is not out yet, as the network
+recorded it: WATCH must have read the registry and found no such version
+first. So a release that already exists cannot be funded after the fact and
+claimed at once, and a version that came out without naming the payee takes
+no new money.
+
 Every pledge has exactly one way out, and they cannot both be open:
 
     seen in time        claim pays the payee everything
-    not seen in time    after the deadline, each backer refunds their own
+    not seen in time    each backer refunds their own, after the deadline,
+                        or at once if the version came out without the payee
 
 Refunds are pulled by each backer rather than pushed in a loop, so one
 contract call never has to pay an unbounded list of people.
@@ -32,7 +40,7 @@ from dataclasses import dataclass
 import genlayer as gl
 from genlayer.types import *
 
-from contracts.releases import epoch_seconds
+from contracts.releases import CLOSED_EXISTED, epoch_seconds
 
 STATE_OPEN = "open"
 STATE_CLAIMED = "claimed"
@@ -67,7 +75,7 @@ class Pot(gl.contract.Contract):
 
     @gl.public.write.payable
     def pledge(self, goal_id: str) -> dict:
-        """Put money toward a release, before the deadline and before it ships."""
+        """Put money toward a release the network has confirmed is not out yet, before the deadline."""
         key = goal_id.strip().lower()
         amount = int(gl.message.value)
         if amount <= 0:
@@ -82,6 +90,13 @@ class Pot(gl.contract.Contract):
         status = self._status(key)
         if bool(status["shipped"]):
             raise gl.vm.UserError("that release has already shipped; the pot is decided")
+        closed = str(status.get("closed", ""))
+        if closed == CLOSED_EXISTED:
+            raise gl.vm.UserError("that version was already out before the network confirmed it absent, so it cannot be funded")
+        if closed:
+            raise gl.vm.UserError("that version came out without naming the payee, so it takes no new pledges")
+        if not str(status.get("absent_at", "")):
+            raise gl.vm.UserError("the network has not confirmed this version is unpublished yet; check the registry first")
 
         if key not in self.funds:
             self.funds[key] = Fund(
@@ -130,7 +145,8 @@ class Pot(gl.contract.Contract):
     @gl.public.write
     def refund(self, goal_id: str) -> dict:
         """
-        Take back your own pledge, after a deadline the release missed.
+        Take back your own pledge: after a deadline the release missed, or
+        as soon as the version came out without naming the payee.
         """
         key = goal_id.strip().lower()
         fund = self._open(key)
@@ -138,11 +154,13 @@ class Pot(gl.contract.Contract):
         now = epoch_seconds(_stamp())
         if now is None:
             raise gl.vm.UserError("the clock could not be read")
-        if now <= int(str(target["deadline"])):
-            raise gl.vm.UserError("the deadline has not passed yet")
         status = self._status(key)
         if bool(status["in_time"]):
             raise gl.vm.UserError("the release was seen in time, so the pot belongs to the payee")
+        # A version out without the payee can never pay, so there is nothing
+        # left to wait for; otherwise the pledge stands until the deadline.
+        if now <= int(str(target["deadline"])) and not str(status.get("closed", "")):
+            raise gl.vm.UserError("the deadline has not passed yet")
 
         backer = gl.message.sender_address
         slot = key + "|" + backer.as_hex.lower()

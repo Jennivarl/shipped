@@ -34,6 +34,7 @@ PLEDGE = 1_000_000
 # An EVM transfer, which is how value reaches a plain wallet.
 EVM_PAY = "EmitExternalMessage"
 
+CONFIRMED = "2026-10-20T09:30:00Z"
 BEFORE = "2026-10-21T09:00:00Z"
 AFTER = "2026-10-22T09:00:01Z"
 
@@ -54,8 +55,11 @@ class Stubs:
             "posted_at": T_POSTED,
             "deadline": str(DEADLINE),
         }
+        # The usual case: the network has confirmed the version is not out.
         self.state = {
             "goal_id": GOAL_ID,
+            "absent_at": CONFIRMED,
+            "closed": "",
             "shipped": False,
             "in_time": False,
             "shipped_at": "",
@@ -74,6 +78,23 @@ class Stubs:
     def shipped_in_time(self):
         self.state = {**self.state, "shipped": True, "in_time": True, "shipped_at": BEFORE,
                       "last_verdict": "shipped", "last_note": "the release names this payee"}
+        return self
+
+    def unconfirmed(self):
+        """Nobody has yet had the network confirm the version is not out."""
+        self.state = {**self.state, "absent_at": ""}
+        return self
+
+    def already_existed(self):
+        """The first reading found the version already published."""
+        self.state = {**self.state, "absent_at": "", "closed": "existed", "last_verdict": "shipped",
+                      "last_note": "the release names this payee"}
+        return self
+
+    def came_out_unclaimed(self):
+        """Confirmed absent, then published without naming the payee."""
+        self.state = {**self.state, "closed": "unclaimed", "last_verdict": "unclaimed",
+                      "last_note": "the release does not name this payee"}
         return self
 
     def install(self, vm):

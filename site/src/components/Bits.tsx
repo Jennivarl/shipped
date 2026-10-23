@@ -3,7 +3,10 @@ import { PHASE_LABEL, dateTime, gen, nowSeconds, phase, txUrl, until } from "../
 import type { TxState } from "../lib/hooks";
 
 const PHASE_STYLE: Record<Phase, string> = {
+  confirm: "bg-accent-tint text-accent",
   open: "bg-accent-tint text-accent",
+  existed: "bg-warn-tint text-warn",
+  unclaimed: "bg-warn-tint text-warn",
   shipped: "bg-good-tint text-good",
   paid: "bg-good-tint text-good",
   missed: "bg-warn-tint text-warn",

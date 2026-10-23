@@ -49,13 +49,23 @@ def watch(direct_vm, direct_deploy, stubs):
     return contract
 
 
+EARLY = "2026-10-20T12:00:00Z"
+NO_PAYEE = '{"info":{"version":"' + VERSION + '"}}'
+
+
 def check(vm, watch, when=BEFORE, **serve):
     set_date(vm, when)
     registry(vm, **serve)
     return watch.check(GOAL_ID)
 
 
+def confirm_absent(vm, watch, when=EARLY):
+    """The reading every goal needs before it can take a pledge."""
+    return check(vm, watch, when=when, status=404, body="")
+
+
 def test_a_release_naming_the_payee_before_the_deadline_counts(direct_vm, watch):
+    confirm_absent(direct_vm, watch)
     got = check(direct_vm, watch)
     assert got["shipped"] is True
     assert got["in_time"] is True
@@ -64,9 +74,55 @@ def test_a_release_naming_the_payee_before_the_deadline_counts(direct_vm, watch)
 
 
 def test_a_release_that_does_not_name_the_payee_does_not_count(direct_vm, watch):
-    got = check(direct_vm, watch, body='{"info":{"version":"' + VERSION + '"}}')
+    confirm_absent(direct_vm, watch)
+    got = check(direct_vm, watch, body=NO_PAYEE)
     assert got["shipped"] is False
+    assert got["in_time"] is False
     assert got["last_verdict"] == "unclaimed"
+    assert got["closed"] == "unclaimed"
+
+
+def test_the_first_not_yet_is_recorded_as_confirmed_absence(direct_vm, watch):
+    got = confirm_absent(direct_vm, watch)
+    assert got["absent_at"] == EARLY
+    got = confirm_absent(direct_vm, watch, when="2026-10-20T15:00:00Z")
+    assert got["absent_at"] == EARLY  # the first confirmation stands
+
+
+def test_an_outage_does_not_confirm_absence(direct_vm, watch):
+    got = check(direct_vm, watch, status=503, body="")
+    assert got["absent_at"] == ""
+
+
+def test_a_release_that_already_existed_closes_the_goal(direct_vm, watch):
+    """Found published before anyone confirmed it absent: never payable."""
+    got = check(direct_vm, watch)
+    assert got["shipped"] is False
+    assert got["in_time"] is False
+    assert got["closed"] == "existed"
+
+
+def test_a_release_that_already_existed_can_never_become_payable(direct_vm, watch):
+    check(direct_vm, watch)
+    with direct_vm.expect_revert("can never pay"):
+        confirm_absent(direct_vm, watch, when=BEFORE)
+    with direct_vm.expect_revert("can never pay"):
+        check(direct_vm, watch)
+    assert watch.status(GOAL_ID)["in_time"] is False
+
+
+def test_an_existing_release_without_the_payee_also_closes_the_goal(direct_vm, watch):
+    got = check(direct_vm, watch, body=NO_PAYEE)
+    assert got["closed"] == "existed"
+
+
+def test_a_version_out_without_the_payee_is_final(direct_vm, watch):
+    """Published versions cannot be edited, so it can never name the payee."""
+    confirm_absent(direct_vm, watch)
+    check(direct_vm, watch, body=NO_PAYEE)
+    with direct_vm.expect_revert("can never pay"):
+        check(direct_vm, watch)
+    assert watch.status(GOAL_ID)["in_time"] is False
 
 
 def test_a_version_not_yet_published_does_not_count(direct_vm, watch):
@@ -91,7 +147,7 @@ def test_an_unreachable_registry_changes_nothing(direct_vm, watch):
 
 
 def test_not_yet_then_shipped_is_recorded_at_the_moment_it_was_seen(direct_vm, watch):
-    check(direct_vm, watch, when="2026-10-20T12:00:00Z", status=404, body="")
+    confirm_absent(direct_vm, watch)
     got = check(direct_vm, watch, when=BEFORE)
     assert got["shipped_at"] == BEFORE
     assert got["checks"] == "2"
@@ -99,6 +155,7 @@ def test_not_yet_then_shipped_is_recorded_at_the_moment_it_was_seen(direct_vm, w
 
 def test_once_seen_it_is_final(direct_vm, watch):
     """A later outage or a yanked file cannot take back an earned payout."""
+    confirm_absent(direct_vm, watch)
     check(direct_vm, watch)
     with direct_vm.expect_revert("already been seen"):
         check(direct_vm, watch, status=404, body="")
@@ -112,6 +169,7 @@ def test_nothing_is_checked_after_the_deadline(direct_vm, watch):
 
 
 def test_anyone_may_check_because_the_reading_is_the_registrys(direct_vm, watch):
+    confirm_absent(direct_vm, watch)
     set_date(direct_vm, BEFORE)
     registry(direct_vm)
     with direct_vm.prank(STRANGER):
@@ -137,6 +195,8 @@ def test_a_goal_never_checked_reports_not_shipped(direct_vm, watch):
     assert got["shipped"] is False
     assert got["in_time"] is False
     assert got["checks"] == "0"
+    assert got["absent_at"] == ""
+    assert got["closed"] == ""
 
 
 # --------------------------------------------------------------------

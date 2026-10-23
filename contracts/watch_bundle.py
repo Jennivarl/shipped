@@ -10,6 +10,8 @@ UNCLAIMED = 'unclaimed'
 NOT_YET = 'not_yet'
 UNKNOWN = 'unknown'
 VERDICTS = (SHIPPED, UNCLAIMED, NOT_YET, UNKNOWN)
+CLOSED_EXISTED = 'existed'
+CLOSED_UNCLAIMED = 'unclaimed'
 MIN_LEAD = 3600
 MAX_LEAD = 366 * 24 * 3600
 _MAX_NAME = 100
@@ -152,6 +154,8 @@ _MAX_NOTE = 60
 @gl.storage.allow
 @dataclass
 class Record:
+    absent_at: str
+    closed: str
     shipped_at: str
     checks: u256
     last_at: str
@@ -171,9 +175,11 @@ class Watch(gl.contract.Contract):
         target = gl.contract.get_at(self.goal).view().get(key)
         if str(target['goal_id']).lower() != key:
             raise gl.vm.UserError('those terms are about a different goal')
-        record = self.records[key] if key in self.records else Record(shipped_at='', checks=0, last_at='', last_verdict='', last_note='')
+        record = self.records[key] if key in self.records else _blank()
         if record.shipped_at:
             raise gl.vm.UserError('that release has already been seen, and that is final')
+        if record.closed:
+            raise gl.vm.UserError('that version is already out and can never pay this goal, and that is final')
         now_stamp = _stamp()
         now = epoch_seconds(now_stamp)
         if now is None:
@@ -204,8 +210,15 @@ class Watch(gl.contract.Contract):
         record.last_at = now_stamp
         record.last_verdict = verdict
         record.last_note = note
-        if verdict == SHIPPED:
-            record.shipped_at = now_stamp
+        if verdict == NOT_YET and (not record.absent_at):
+            record.absent_at = now_stamp
+        elif verdict in (SHIPPED, UNCLAIMED):
+            if not record.absent_at:
+                record.closed = CLOSED_EXISTED
+            elif verdict == SHIPPED:
+                record.shipped_at = now_stamp
+            else:
+                record.closed = CLOSED_UNCLAIMED
         self.records[key] = record
         return _as_dict(key, record, int(str(target['deadline'])))
 
@@ -213,7 +226,7 @@ class Watch(gl.contract.Contract):
     def status(self, goal_id: str) -> dict:
         key = goal_id.strip().lower()
         target = gl.contract.get_at(self.goal).view().get(key)
-        record = self.records[key] if key in self.records else Record(shipped_at='', checks=0, last_at='', last_verdict='', last_note='')
+        record = self.records[key] if key in self.records else _blank()
         return _as_dict(key, record, int(str(target['deadline'])))
 
     @gl.public.view
@@ -229,6 +242,9 @@ def _read(url: str, version: str, payee: str) -> dict:
         return unreached()
     return classify(status, body, version, payee)
 
+def _blank() -> Record:
+    return Record(absent_at='', closed='', shipped_at='', checks=0, last_at='', last_verdict='', last_note='')
+
 def _stamp() -> str:
     return str(gl.message.raw['datetime'])
 
@@ -239,5 +255,5 @@ def _address(value) -> Address:
 
 def _as_dict(key: str, record: Record, deadline: int) -> dict:
     seen = epoch_seconds(record.shipped_at) if record.shipped_at else None
-    in_time = seen is not None and seen <= deadline
-    return {'goal_id': key, 'shipped': bool(record.shipped_at), 'in_time': in_time, 'shipped_at': record.shipped_at, 'deadline': str(deadline), 'checks': str(record.checks), 'last_at': record.last_at, 'last_verdict': record.last_verdict, 'last_note': record.last_note}
+    in_time = bool(record.absent_at) and seen is not None and (seen <= deadline)
+    return {'goal_id': key, 'absent_at': record.absent_at, 'closed': record.closed, 'shipped': bool(record.shipped_at), 'in_time': in_time, 'shipped_at': record.shipped_at, 'deadline': str(deadline), 'checks': str(record.checks), 'last_at': record.last_at, 'last_verdict': record.last_verdict, 'last_note': record.last_note}

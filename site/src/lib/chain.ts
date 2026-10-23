@@ -6,9 +6,9 @@
  * could go stale.
  */
 
-export const GOAL = "0x11CE3247F16569C42031F6FE3Dedf07027C1088e";
-export const WATCH = "0xeaAC1bC201E35fB2eF7995fA5B96FA5B425D0B74";
-export const POT = "0x5aA0C16F41Ba65952c76Bb27302849F3EA0FC4a4";
+export const GOAL = "0x792EA02B091490ECEF03E9F8e8fce36fE6c39b8f";
+export const WATCH = "0x0e01943Bf3b3e748867285975dAD3FfD55B0b57a";
+export const POT = "0xD40ADbCf88c6E39b177227A96cb64771FF398e84";
 
 export const RPC = "https://studio-next.genlayer.com/api";
 export const EXPLORER = "https://explorer-studio-dev.genlayer.com";
@@ -49,6 +49,8 @@ export type Goal = {
 
 export type Status = {
   goal_id: string;
+  absent_at: string;
+  closed: string;
   shipped: boolean;
   in_time: boolean;
   shipped_at: string;
@@ -186,19 +188,30 @@ export async function txOutcome(txId: string): Promise<{ execution: number | nul
 // what a goal's state means, in one word
 // ------------------------------------------------------------------
 
-export type Phase = "open" | "shipped" | "paid" | "missed";
+export type Phase = "confirm" | "open" | "shipped" | "paid" | "existed" | "unclaimed" | "missed";
 
+/**
+ * Pledges open only once the network has confirmed the version is not out
+ * yet. A version found already out, or out without the payee, closes the
+ * goal for good.
+ */
 export function phase(v: GoalView, nowSeconds: number): Phase {
   if (v.fund?.state === "claimed") return "paid";
   if (v.status.in_time) return "shipped";
+  if (v.status.closed === "existed") return "existed";
+  if (v.status.closed === "unclaimed") return "unclaimed";
   if (nowSeconds > Number(v.goal.deadline)) return "missed";
+  if (!v.status.absent_at) return "confirm";
   return "open";
 }
 
 export const PHASE_LABEL: Record<Phase, string> = {
+  confirm: "Needs a registry check first",
   open: "Waiting on the release",
   shipped: "Shipped in time",
   paid: "Paid to the maintainer",
+  existed: "Already out, cannot be funded",
+  unclaimed: "Out without the payee, refunds open",
   missed: "Deadline missed, refunds open",
 };
 

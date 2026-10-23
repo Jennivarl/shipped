@@ -82,8 +82,8 @@ function Terminal({ v }: { v?: GoalView }) {
 }
 
 const PIPELINE = [
-  ["post", "Anyone posts a goal", "A package, the exact version, a deadline, and who gets paid. Fixed the moment it is posted."],
-  ["pledge", "Backers pledge", "Any number of them, any amount. Pledges cannot be pulled early, so a maintainer can count on them."],
+  ["post", "Anyone posts a goal", "A package, the exact version, a deadline, and who gets paid. The network first confirms that version is not out yet."],
+  ["pledge", "Backers pledge", "Any number of them, any amount, once it is confirmed missing. Pledges cannot be pulled early, so a maintainer can count on them."],
   ["check", "The network reads the registry", "Every validator fetches the version's own page on PyPI or npm: a 200 naming the payee, or a 404."],
   ["settle", "Paid, or refunded", "Seen in time, the pot goes to the maintainer. Missed, every backer takes back exactly what they put in."],
 ];
